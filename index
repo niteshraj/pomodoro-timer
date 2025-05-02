@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pomodoro Timer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f0f0f0;
+            margin: 0;
+            padding: 0;
+        }
+        header {
+            margin-bottom: 20px;
+            padding: 10px;
+            background-color: #333;
+            color: white;
+        }
+        .timer-container {
+            position: relative;
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+        }
+        .time-display {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 2em;
+            color: #333;
+        }
+        svg {
+            transform: rotate(-90deg);
+        }
+        .background {
+            fill: none;
+            stroke: #ddd;
+            stroke-width: 10;
+        }
+        .progress {
+            fill: none;
+            stroke: #333;
+            stroke-width: 10;
+            stroke-dasharray: 565.48, 565.48;
+        }
+        .controls button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #333;
+            color: white;
+        }
+        .controls button:hover {
+            background-color: #555;
+        }
+        #settings-btn {
+            padding: 10px 20px;
+            font-size: 1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #666;
+            color: white;
+        }
+        #settings-btn:hover {
+            background-color: #888;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        .modal-content {
+            background-color: #fff;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+            max-width: 400px;
+            border-radius: 5px;
+        }
+        .modal-content label {
+            display: block;
+            margin: 10px 0;
+        }
+        .modal-content input {
+            width: 60px;
+            padding: 5px;
+        }
+        .modal-content button {
+            margin: 10px;
+            padding: 10px 20px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #333;
+            color: white;
+        }
+        .modal-content button:hover {
+            background-color: #555;
+        }
+        .timer-container.work .progress {
+            stroke: #ff4444;
+        }
+        .timer-container.short_break .progress {
+            stroke: #44ff44;
+        }
+        .timer-container.long_break .progress {
+            stroke: #4444ff;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Pomodoro Timer</h1>
+    </header>
+    <main>
+        <div class="timer-container">
+            <svg width="200" height="200">
+                <circle class="background" cx="100" cy="100" r="90" />
+                <circle class="progress" cx="100" cy="100" r="90" />
+            </svg>
+            <div class="time-display">25:00</div>
+        </div>
+        <div class="controls">
+            <button id="start">Start</button>
+            <button id="pause">Pause</button>
+            <button id="reset">Reset</button>
+        </div>
+        <button id="settings-btn">Settings</button>
+    </main>
+    <div id="settings-modal" class="modal">
+        <div class="modal-content">
+            <h2>Settings</h2>
+            <label>Work Duration (min): <input type="number" id="work-duration" min="1" max="60" value="25"></label>
+            <label>Short Break (min): <input type="number" id="short-break" min="1" max="60" value="5"></label>
+            <label>Long Break (min): <input type="number" id="long-break" min="1" max="60" value="15"></label>
+            <button id="save-settings">Save</button>
+            <button id="close-settings">Close</button>
+        </div>
+    </div>
+    <audio id="alarm" src="https://www.soundjay.com/buttons/beep-01a.mp3"></audio>
+    <script>
+        const timeDisplay = document.querySelector('.time-display');
+        const progressCircle = document.querySelector('.progress');
+        const startBtn = document.getElementById('start');
+        const pauseBtn = document.getElementById('pause');
+        const resetBtn = document.getElementById('reset');
+        const settingsBtn = document.getElementById('settings-btn');
+        const settingsModal = document.getElementById('settings-modal');
+        const workDurationInput = document.getElementById('work-duration');
+        const shortBreakInput = document.getElementById('short-break');
+        const longBreakInput = document.getElementById('long-break');
+        const saveSettingsBtn = document.getElementById('save-settings');
+        const closeSettingsBtn = document.getElementById('close-settings');
+        const alarm = document.getElementById('alarm');
+        const timerContainer = document.querySelector('.timer-container');
+
+        const r = 90;
+        const circumference = 2 * Math.PI * r;
+
+        let workDuration = parseInt(localStorage.getItem('workDuration')) || 25;
+        let shortBreak = parseInt(localStorage.getItem('shortBreak')) || 5;
+        let longBreak = parseInt(localStorage.getItem('longBreak')) || 15;
+
+        workDurationInput.value = workDuration;
+        shortBreakInput.value = shortBreak;
+        longBreakInput.value = longBreak;
+
+        let currentPhase = 'work';
+        let isRunning = false;
+        let endTime = null;
+        let workCounter = 0;
+        let timerInterval = null;
+        let pausedRemaining = null;
+
+        progressCircle.setAttribute('stroke-dasharray', `${circumference} ${circumference}`);
+
+        function formatTime(seconds) {
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function getDuration(phase) {
+            switch (phase) {
+                case 'work': return workDuration;
+                case 'short_break': return shortBreak;
+                case 'long_break': return longBreak;
+            }
+        }
+
+        function displayTime(seconds) {
+            timeDisplay.textContent = formatTime(seconds);
+            const totalSeconds = getDuration(currentPhase) * 60;
+            const remainingLength = (seconds / totalSeconds) * circumference;
+            progressCircle.setAttribute('stroke-dasharray', `${remainingLength} ${circumference}`);
+        }
+
+        function updateDisplay() {
+            timerContainer.className = `timer-container ${currentPhase}`;
+            if (isRunning) {
+                const now = Date.now();
+                const remaining = Math.max(0, Math.floor((endTime - now) / 1000));
+                if (remaining <= 0) {
+                    switchPhase();
+                } else {
+                    displayTime(remaining);
+                }
+            } else {
+                if (pausedRemaining != null) {
+                    displayTime(pausedRemaining);
+                } else {
+                    const initialSeconds = getDuration(currentPhase) * 60;
+                    displayTime(initialSeconds);
+                }
+            }
+        }
+
+        function switchPhase() {
+            if (currentPhase === 'work') {
+                workCounter++;
+                if (workCounter % 4 === 0) {
+                    currentPhase = 'long_break';
+                } else {
+                    currentPhase = 'short_break';
+                }
+            } else {
+                currentPhase = 'work';
+            }
+            showNotification();
+            alarm.play();
+            const duration = getDuration(currentPhase);
+            endTime = Date.now() + duration * 60 * 1000;
+            updateDisplay();
+        }
+
+        function showNotification() {
+            if (Notification.permission === 'granted') {
+                let message = currentPhase === 'work' ? 'Time to work!' : 'Take a break!';
+                new Notification(message);
+            }
+        }
+
+        startBtn.addEventListener('click', () => {
+            if (!isRunning) {
+                if (pausedRemaining != null) {
+                    endTime = Date.now() + pausedRemaining * 1000;
+                    pausedRemaining = null;
+                } else {
+                    const duration = getDuration(currentPhase);
+                    endTime = Date.now() + duration * 60 * 1000;
+                }
+                isRunning = true;
+                timerInterval = setInterval(updateDisplay, 1000);
+            }
+        });
+
+        pauseBtn.addEventListener('click', () => {
+            if (isRunning) {
+                clearInterval(timerInterval);
+                isRunning = false;
+                pausedRemaining = Math.floor((endTime - Date.now()) / 1000);
+            }
+        });
+
+        resetBtn.addEventListener('click', () => {
+            clearInterval(timerInterval);
+            isRunning = false;
+            currentPhase = 'work';
+            pausedRemaining = null;
+            workCounter = 0;
+            updateDisplay();
+        });
+
+        settingsBtn.addEventListener('click', () => {
+            settingsModal.style.display = 'block';
+        });
+
+        closeSettingsBtn.addEventListener('click', () => {
+            settingsModal.style.display = 'none';
+        });
+
+        saveSettingsBtn.addEventListener('click', () => {
+            workDuration = parseInt(workDurationInput.value) || 25;
+            shortBreak = parseInt(shortBreakInput.value) || 5;
+            longBreak = parseInt(longBreakInput.value) || 15;
+            localStorage.setItem('workDuration', workDuration);
+            localStorage.setItem('shortBreak', shortBreak);
+            localStorage.setItem('longBreak', longBreak);
+            if (!isRunning) {
+                updateDisplay();
+            }
+            settingsModal.style.display = 'none';
+        });
+
+        if (Notification.permission !== 'granted') {
+            Notification.requestPermission();
+        }
+
+        updateDisplay();
+    </script>
+</body>
+</html>
